@@ -11,5 +11,7 @@ public class Extension implements BurpExtension {
         Registration tabReg = montoyaApi.userInterface().registerSuiteTab("AES Decrypt", panel);
 
         montoyaApi.http().registerHttpHandler(new DecryptingHttpHandler(montoyaApi, panel));
+        // Intercept capture beacons and drop them
+        montoyaApi.proxy().registerRequestHandler(new CaptureProxyHandler(montoyaApi, panel));
     }
 }

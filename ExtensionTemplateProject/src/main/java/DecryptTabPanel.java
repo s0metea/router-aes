@@ -12,9 +12,13 @@ import java.awt.*;
 
 class DecryptTabPanel extends JPanel {
     private final MontoyaApi api;
-    private final JTextField originField = new JTextField(30);
-    private final JTextField aesKeyField = new JTextField(40);
+    private final JTextField originField = new JTextField(20);
+    private final JTextField aesKeyField = new JTextField(24);
+    private final JTextField ivField = new JTextField(24);
+    private final JTextArea rsaPublicKeyArea = new JTextArea(3, 30);
+    private final JComboBox<String> keyParamMode = new JComboBox<>(new String[]{"always set", "only on POST /UserLogin"});
     private final JCheckBox enabledBox = new JCheckBox("Enabled");
+    private final JCheckBox encryptRepeaterBox = new JCheckBox("Encrypt Repeater requests");
     private final JButton clearBtn = new JButton("Clear");
 
     private final DecryptTableModel tableModel = new DecryptTableModel();
@@ -30,13 +34,32 @@ class DecryptTabPanel extends JPanel {
         this.requestEditor = ui.createHttpRequestEditor();
         this.responseEditor = ui.createHttpResponseEditor();
 
-        JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        controls.add(new JLabel("Target origin:"));
-        controls.add(originField);
-        controls.add(new JLabel("AES key:"));
-        controls.add(aesKeyField);
-        controls.add(enabledBox);
-        controls.add(clearBtn);
+        JPanel controls = new JPanel();
+        controls.setLayout(new GridBagLayout());
+        GridBagConstraints gc = new GridBagConstraints();
+        gc.insets = new Insets(2,2,2,2);
+        gc.anchor = GridBagConstraints.WEST;
+        gc.fill = GridBagConstraints.HORIZONTAL;
+        gc.gridy = 0; gc.gridx = 0;
+        controls.add(new JLabel("Target origin:"), gc);
+        gc.gridx = 1; controls.add(originField, gc);
+        gc.gridx = 2; controls.add(enabledBox, gc);
+
+        gc.gridy++; gc.gridx = 0; controls.add(new JLabel("AES key (Base64/Hex):"), gc);
+        gc.gridx = 1; controls.add(aesKeyField, gc);
+        gc.gridx = 2; controls.add(encryptRepeaterBox, gc);
+
+        gc.gridy++; gc.gridx = 0; controls.add(new JLabel("IV (Base64/Hex):"), gc);
+        gc.gridx = 1; controls.add(ivField, gc);
+        gc.gridx = 2; controls.add(keyParamMode, gc);
+
+        gc.gridy++; gc.gridx = 0; controls.add(new JLabel("RSA Public Key:"), gc);
+        gc.gridx = 1; gc.gridwidth = 2;
+        JScrollPane rsaScroll = new JScrollPane(rsaPublicKeyArea);
+        controls.add(rsaScroll, gc);
+        gc.gridwidth = 1;
+
+        gc.gridy++; gc.gridx = 0; controls.add(clearBtn, gc);
 
         clearBtn.addActionListener(e -> tableModel.clear());
 
@@ -74,9 +97,17 @@ class DecryptTabPanel extends JPanel {
 
     String getOrigin() { return originField.getText().trim(); }
     String getAesKey() { return aesKeyField.getText().trim(); }
+    String getIv() { return ivField.getText().trim(); }
+    String getRsaPublicKey() { return rsaPublicKeyArea.getText(); }
+    String getKeyParamMode() { return (String) keyParamMode.getSelectedItem(); }
     boolean isFeatureEnabled() { return enabledBox.isSelected(); }
+    boolean isEncryptRepeaterEnabled() { return encryptRepeaterBox.isSelected(); }
 
     void addEntry(DecryptEntry e) {
         SwingUtilities.invokeLater(() -> tableModel.add(e));
+    }
+
+    void setRsaPublicKey(String key) {
+        SwingUtilities.invokeLater(() -> rsaPublicKeyArea.setText(key != null ? key : ""));
     }
 }
