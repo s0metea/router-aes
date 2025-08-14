@@ -54,24 +54,29 @@ class CaptureProxyHandler implements ProxyRequestHandler {
             }
             if (payloadJson == null) payloadJson = "{}";
 
-            // Parse JSON payload to capture iv/key and correlate
+            // Parse JSON payload, correlate by IV, and update displayed request body with plaintext
             try {
                 String iv = extractJsonString(payloadJson, "ivB64");
                 if (iv == null) iv = extractJsonString(payloadJson, "iv");
                 if (iv == null) iv = extractJsonStringNested(payloadJson, "ivB64");
                 if (iv == null) iv = extractJsonStringNested(payloadJson, "iv");
 
-                String aesKeyB64 = extractJsonString(payloadJson, "aesKeyB64");
-                if (aesKeyB64 == null) aesKeyB64 = extractJsonString(payloadJson, "keyB64");
-                if (aesKeyB64 == null) aesKeyB64 = extractJsonStringNested(payloadJson, "aesKeyB64");
-                if (aesKeyB64 == null) aesKeyB64 = extractJsonStringNested(payloadJson, "keyB64");
+                // plaintext may be sent as 'plaintext' (full string) or fallback to preview fields if not present
+                String plaintext = extractJsonString(payloadJson, "plaintext");
+                if (plaintext == null) plaintext = extractJsonStringNested(payloadJson, "plaintext");
+                if (plaintext == null) plaintext = extractJsonString(payloadJson, "plaintextPreview");
+                if (plaintext == null) plaintext = extractJsonStringNested(payloadJson, "plaintextPreview");
 
-                byte[] keyBytes = null;
-                if (aesKeyB64 != null && !aesKeyB64.isEmpty()) {
-                    try { keyBytes = java.util.Base64.getDecoder().decode(aesKeyB64); } catch (Exception ignored) {}
-                }
-                if (iv != null && keyBytes != null) {
-                    CaptureStore.register(iv, keyBytes);
+                if (iv != null && plaintext != null) {
+                    Integer msgId = IvRequestMap.messageIdForIv(iv);
+                    if (msgId != null) {
+                        var origReq = IvRequestMap.requestForMessageId(msgId);
+                        if (origReq != null) {
+                            var displayedReq = origReq.withBody(plaintext).withRemovedHeader("Content-Length");
+                            RequestDisplayStore.put(msgId, displayedReq);
+                        }
+                        IvRequestMap.clearForIv(iv);
+                    }
                 }
             } catch (Throwable ignored) {}
 

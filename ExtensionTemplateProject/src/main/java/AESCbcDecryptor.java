@@ -7,7 +7,7 @@ import java.util.Base64;
 class AESCbcDecryptor {
     static byte[] parseKey(String keyText) {
         if (keyText == null) return null;
-        String s = keyText.trim();
+        String s = keyText.trim().replaceAll("\\s+", "");
         try {
             if (isHex(s)) {
                 return hexToBytes(s);
@@ -39,7 +39,8 @@ class AESCbcDecryptor {
     }
 
     static String decryptBase64Content(String base64CipherText, byte[] key, byte[] iv) throws Exception {
-        byte[] cipherBytes = Base64.getDecoder().decode(base64CipherText);
+        String b64 = normalizeBase64(base64CipherText);
+        byte[] cipherBytes = Base64.getDecoder().decode(b64);
         Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
         SecretKeySpec secretKeySpec = new SecretKeySpec(normalizeKey(key), "AES");
         cipher.init(Cipher.DECRYPT_MODE, secretKeySpec, new IvParameterSpec(iv));
@@ -93,5 +94,25 @@ class AESCbcDecryptor {
             for (int i = iv.length; i < 16; i++) out[i] = 0;
         }
         return out;
+    }
+
+    private static String normalizeBase64(String s) {
+        if (s == null) return "";
+        String t = s.trim();
+        // Unescape common JSON escape sequences for base64
+        t = t.replace("\\/", "/")
+             .replace("\\u002F", "/").replace("\\u002f", "/")
+             .replace("\\u002B", "+").replace("\\u002b", "+")
+             .replace("\\u003D", "=").replace("\\u003d", "=");
+        // base64url -> base64
+        t = t.replace('-', '+').replace('_', '/');
+        // remove whitespace
+        t = t.replaceAll("\\s+", "");
+        // pad to length % 4 == 0
+        int mod = t.length() % 4;
+        if (mod != 0) {
+            t = t + "====".substring(mod);
+        }
+        return t;
     }
 }

@@ -31,22 +31,12 @@ class DecryptingHttpHandler implements HttpHandler {
             if (pathNoQ != null && pathNoQ.startsWith("/__capture__")) {
                 return RequestToBeSentAction.continueWith(requestToBeSent);
             }
-            // If the body already looks like encrypted JSON, decrypt for display by correlating IV
+            // If the body looks like encrypted JSON, extract IV and remember mapping for later correlation
             String bodyOrig = safe(requestToBeSent::bodyToString);
             if (bodyOrig != null && bodyOrig.contains("\"content\"") && bodyOrig.contains("\"iv\"")) {
                 String iv = normalizeEscapes(extract(IV_PATTERN, bodyOrig));
-                String content = normalizeEscapes(extract(CONTENT_PATTERN, bodyOrig));
-                if (iv != null && content != null) {
-                    byte[] key = CaptureStore.getKeyForIv(iv);
-                    if (key == null) key = AESCbcDecryptor.parseKey(panel.getAesKey());
-                    byte[] ivBytes = AESCbcDecryptor.parseIv(iv);
-                    if (key != null && ivBytes != null) {
-                        try {
-                            String plain = AESCbcDecryptor.decryptBase64Content(content, key, ivBytes);
-                            var displayedReq = requestToBeSent.withBody(plain).withRemovedHeader("Content-Length");
-                            RequestDisplayStore.put(requestToBeSent.messageId(), displayedReq);
-                        } catch (Exception ignored) {}
-                    }
+                if (iv != null && !iv.isEmpty()) {
+                    IvRequestMap.remember(iv, requestToBeSent.messageId(), requestToBeSent);
                 }
             }
         } catch (Throwable ignored) {}
@@ -64,6 +54,10 @@ class DecryptingHttpHandler implements HttpHandler {
                             var displayedReq = requestToBeSent.withBody(body).withRemovedHeader("Content-Length");
                             RequestDisplayStore.put(requestToBeSent.messageId(), displayedReq);
                         } catch (Throwable ignored) {}
+                    }
+                    // If already in encrypted envelope, avoid double-wrapping
+                    if (body != null && body.contains("\"content\"") && body.contains("\"iv\"")) {
+                        return RequestToBeSentAction.continueWith(requestToBeSent);
                     }
                     byte[] keyBytes = AESCbcDecryptor.parseKey(panel.getAesKey());
                     byte[] ivBytes = AESCbcDecryptor.parseIv(panel.getIv());
