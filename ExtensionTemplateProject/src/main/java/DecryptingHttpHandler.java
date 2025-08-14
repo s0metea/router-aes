@@ -10,6 +10,7 @@ import burp.api.montoya.http.message.responses.HttpResponse;
 import java.util.Base64;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.security.SecureRandom;
 
 class DecryptingHttpHandler implements HttpHandler {
     private final MontoyaApi api;
@@ -37,6 +38,14 @@ class DecryptingHttpHandler implements HttpHandler {
                 String iv = normalizeEscapes(extract(IV_PATTERN, bodyOrig));
                 if (iv != null && !iv.isEmpty()) {
                     IvRequestMap.remember(iv, requestToBeSent.messageId(), requestToBeSent);
+                    // Consume any pending plaintext captured before mapping existed
+                    try {
+                        String pending = IvRequestMap.takePendingPlaintext(iv);
+                        if (pending != null) {
+                            var displayedReq = requestToBeSent.withBody(pending).withRemovedHeader("Content-Length");
+                            RequestDisplayStore.put(requestToBeSent.messageId(), displayedReq);
+                        }
+                    } catch (Throwable ignored) {}
                 }
             }
         } catch (Throwable ignored) {}
@@ -61,6 +70,22 @@ class DecryptingHttpHandler implements HttpHandler {
                     }
                     byte[] keyBytes = AESCbcDecryptor.parseKey(panel.getAesKey());
                     byte[] ivBytes = AESCbcDecryptor.parseIv(panel.getIv());
+
+                    // Generate a random IV if none provided or if it's all zeros
+                    if (ivBytes == null) {
+                        SecureRandom sr = new SecureRandom();
+                        ivBytes = new byte[16];
+                        sr.nextBytes(ivBytes);
+                    } else {
+                        boolean allZero = true;
+                        for (byte b : ivBytes) { if (b != 0) { allZero = false; break; } }
+                        if (allZero) {
+                            SecureRandom sr = new SecureRandom();
+                            ivBytes = new byte[16];
+                            sr.nextBytes(ivBytes);
+                        }
+                    }
+
                     if (body != null && keyBytes != null && ivBytes != null) {
                         String contentB64 = AESCbcEncryptor.encryptToBase64(body, keyBytes, ivBytes);
                         String ivOut = Base64.getEncoder().encodeToString(ivBytes);
@@ -86,6 +111,18 @@ class DecryptingHttpHandler implements HttpHandler {
                                 .withRemovedHeader("Content-Length")
                                 .withRemovedHeader("Content-Type")
                                 .withAddedHeader("Content-Type", "application/json");
+
+                        // Remember mapping so __capture__ can update displayed plaintext later
+                        IvRequestMap.remember(ivOut, requestToBeSent.messageId(), newReq);
+                        // Also consume any pending plaintext captured before the mapping existed
+                        try {
+                            String pending = IvRequestMap.takePendingPlaintext(ivOut);
+                            if (pending != null) {
+                                var displayedReq = newReq.withBody(pending).withRemovedHeader("Content-Length");
+                                RequestDisplayStore.put(requestToBeSent.messageId(), displayedReq);
+                            }
+                        } catch (Throwable ignored) {}
+
                         return RequestToBeSentAction.continueWith(newReq);
                     }
                 }

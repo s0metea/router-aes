@@ -75,6 +75,9 @@ class CaptureProxyHandler implements ProxyRequestHandler {
                             RequestDisplayStore.put(msgId, displayedReq);
                         }
                         IvRequestMap.clearForIv(iv);
+                    } else {
+                        // No mapping yet: store plaintext to apply once the request mapping is remembered
+                        IvRequestMap.putPendingPlaintext(iv, plaintext);
                     }
                 }
             } catch (Throwable ignored) {}
@@ -112,11 +115,57 @@ class CaptureProxyHandler implements ProxyRequestHandler {
 
     private static String extractJsonString(String json, String key) {
         if (json == null || key == null) return null;
-        try {
-            java.util.regex.Pattern p = java.util.regex.Pattern.compile("\\\"" + java.util.regex.Pattern.quote(key) + "\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"");
-            java.util.regex.Matcher m = p.matcher(json);
-            if (m.find()) return m.group(1);
-        } catch (Throwable ignored) {}
+        String needle = "\"" + key + "\"";
+        int len = json.length();
+        int idx = 0;
+        while (idx < len) {
+            int k = json.indexOf(needle, idx);
+            if (k < 0) return null;
+            int i = k + needle.length();
+            // skip whitespace
+            while (i < len && Character.isWhitespace(json.charAt(i))) i++;
+            if (i >= len || json.charAt(i) != ':') { idx = k + 1; continue; }
+            i++;
+            while (i < len && Character.isWhitespace(json.charAt(i))) i++;
+            if (i >= len || json.charAt(i) != '"') { idx = k + 1; continue; }
+            i++; // start of string value
+            StringBuilder sb = new StringBuilder();
+            while (i < len) {
+                char c = json.charAt(i++);
+                if (c == '\\') {
+                    if (i >= len) break;
+                    char e = json.charAt(i++);
+                    switch (e) {
+                        case '"': sb.append('"'); break;
+                        case '\\': sb.append('\\'); break;
+                        case '/': sb.append('/'); break;
+                        case 'b': sb.append('\b'); break;
+                        case 'f': sb.append('\f'); break;
+                        case 'n': sb.append('\n'); break;
+                        case 'r': sb.append('\r'); break;
+                        case 't': sb.append('\t'); break;
+                        case 'u':
+                            if (i + 3 < len) {
+                                String hex = json.substring(i, i + 4);
+                                try {
+                                    int code = Integer.parseInt(hex, 16);
+                                    sb.append((char) code);
+                                } catch (Exception ex) { /* ignore bad hex */ }
+                                i += 4;
+                            }
+                            break;
+                        default:
+                            sb.append(e);
+                    }
+                } else if (c == '"') {
+                    return sb.toString();
+                } else {
+                    sb.append(c);
+                }
+            }
+            // malformed, continue searching further occurrences
+            idx = k + 1;
+        }
         return null;
     }
 
