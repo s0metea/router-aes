@@ -47,7 +47,7 @@ class DecryptTableModel extends AbstractTableModel {
     @Override
     public Object getValueAt(int rowIndex, int columnIndex) {
         DecryptEntry e = entries.get(rowIndex);
-        HttpRequest req = e.request;
+        HttpRequest req = e.displayedRequest != null ? e.displayedRequest : e.request;
         HttpResponse resp = e.displayedResponse != null ? e.displayedResponse : e.originalResponse;
         return switch (columnIndex) {
             case 0 -> fmt.format(new Date(e.timestamp));

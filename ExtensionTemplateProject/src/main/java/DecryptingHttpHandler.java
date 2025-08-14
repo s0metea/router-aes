@@ -26,6 +26,31 @@ class DecryptingHttpHandler implements HttpHandler {
 
     @Override
     public RequestToBeSentAction handleHttpRequestToBeSent(HttpRequestToBeSent requestToBeSent) {
+        try {
+            String pathNoQ = safe(requestToBeSent::pathWithoutQuery);
+            if (pathNoQ != null && pathNoQ.startsWith("/__capture__")) {
+                return RequestToBeSentAction.continueWith(requestToBeSent);
+            }
+            // If the body already looks like encrypted JSON, decrypt for display by correlating IV
+            String bodyOrig = safe(requestToBeSent::bodyToString);
+            if (bodyOrig != null && bodyOrig.contains("\"content\"") && bodyOrig.contains("\"iv\"")) {
+                String iv = normalizeEscapes(extract(IV_PATTERN, bodyOrig));
+                String content = normalizeEscapes(extract(CONTENT_PATTERN, bodyOrig));
+                if (iv != null && content != null) {
+                    byte[] key = CaptureStore.getKeyForIv(iv);
+                    if (key == null) key = AESCbcDecryptor.parseKey(panel.getAesKey());
+                    byte[] ivBytes = AESCbcDecryptor.parseIv(iv);
+                    if (key != null && ivBytes != null) {
+                        try {
+                            String plain = AESCbcDecryptor.decryptBase64Content(content, key, ivBytes);
+                            var displayedReq = requestToBeSent.withBody(plain).withRemovedHeader("Content-Length");
+                            RequestDisplayStore.put(requestToBeSent.messageId(), displayedReq);
+                        } catch (Exception ignored) {}
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+
         // Repeater encryption logic
         try {
             if (panel.isEncryptRepeaterEnabled() && requestToBeSent.toolSource() != null && requestToBeSent.toolSource().isFromTool(ToolType.REPEATER)) {
@@ -33,6 +58,13 @@ class DecryptingHttpHandler implements HttpHandler {
                 if (method != null) method = method.toUpperCase();
                 if ("POST".equals(method) || "PUT".equals(method) || "PATCH".equals(method)) {
                     String body = safe(requestToBeSent::bodyToString);
+                    // Keep a plaintext view for the table
+                    if (body != null) {
+                        try {
+                            var displayedReq = requestToBeSent.withBody(body).withRemovedHeader("Content-Length");
+                            RequestDisplayStore.put(requestToBeSent.messageId(), displayedReq);
+                        } catch (Throwable ignored) {}
+                    }
                     byte[] keyBytes = AESCbcDecryptor.parseKey(panel.getAesKey());
                     byte[] ivBytes = AESCbcDecryptor.parseIv(panel.getIv());
                     if (body != null && keyBytes != null && ivBytes != null) {
@@ -51,7 +83,6 @@ class DecryptingHttpHandler implements HttpHandler {
                             try {
                                 keyField = RsaUtil.encryptKeyToBase64(usedKey, panel.getRsaPublicKey());
                             } catch (Exception e) {
-                                // If RSA fails and we are required to include key, keep it empty string per safety
                                 keyField = "";
                             }
                         }
@@ -96,6 +127,10 @@ class DecryptingHttpHandler implements HttpHandler {
             String method = safe(req::method);
             String path = safe(req::pathWithoutQuery);
             if (path != null) {
+                // Do not log capture responses at all
+                if (path.startsWith("/__capture__")) {
+                    return ResponseReceivedAction.continueWith(originalResp);
+                }
                 String p = path;
                 boolean matches = p.equals("/getRSAPublickKey") || p.endsWith("/getRSAPublickKey")
                         || p.equals("/getRSAPublicKey") || p.endsWith("/getRSAPublicKey");
@@ -140,9 +175,7 @@ class DecryptingHttpHandler implements HttpHandler {
                         String plain = AESCbcDecryptor.decryptBase64Content(content, key, ivBytes);
                         resultResp = resultResp.withBody(plain)
                                 .withRemovedHeader("Content-Encoding")
-                                .withRemovedHeader("Content-Length")
-                                .withRemovedHeader("Content-Type")
-                                .withAddedHeader("Content-Type", "application/json");
+                                .withRemovedHeader("Content-Length");
                         decrypted = true;
                         note = "decrypted";
                     } else {
@@ -158,7 +191,9 @@ class DecryptingHttpHandler implements HttpHandler {
             note = "not json";
         }
 
-        panel.addEntry(new DecryptEntry(System.currentTimeMillis(), req, originalResp, resultResp, decrypted, note));
+        // Attach any displayedRequest that was prepared during request phase
+        var displayedReq = RequestDisplayStore.take(responseReceived.messageId());
+        panel.addEntry(new DecryptEntry(System.currentTimeMillis(), req, displayedReq, originalResp, resultResp, decrypted, note));
         return ResponseReceivedAction.continueWith(resultResp);
     }
 

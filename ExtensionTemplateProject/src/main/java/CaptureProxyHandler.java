@@ -54,17 +54,28 @@ class CaptureProxyHandler implements ProxyRequestHandler {
             }
             if (payloadJson == null) payloadJson = "{}";
 
-            // Create a synthetic response to show in the UI with the payload
-            HttpResponse displayed = HttpResponse.httpResponse(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" + payloadJson
-            );
-            HttpResponse original = HttpResponse.httpResponse(
-                    "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n"
-            );
+            // Parse JSON payload to capture iv/key and correlate
+            try {
+                String iv = extractJsonString(payloadJson, "ivB64");
+                if (iv == null) iv = extractJsonString(payloadJson, "iv");
+                if (iv == null) iv = extractJsonStringNested(payloadJson, "ivB64");
+                if (iv == null) iv = extractJsonStringNested(payloadJson, "iv");
 
-            panel.addEntry(new DecryptEntry(System.currentTimeMillis(), interceptedRequest, original, displayed, true, "capture"));
+                String aesKeyB64 = extractJsonString(payloadJson, "aesKeyB64");
+                if (aesKeyB64 == null) aesKeyB64 = extractJsonString(payloadJson, "keyB64");
+                if (aesKeyB64 == null) aesKeyB64 = extractJsonStringNested(payloadJson, "aesKeyB64");
+                if (aesKeyB64 == null) aesKeyB64 = extractJsonStringNested(payloadJson, "keyB64");
 
-            // Drop request so it doesn't hit the backend
+                byte[] keyBytes = null;
+                if (aesKeyB64 != null && !aesKeyB64.isEmpty()) {
+                    try { keyBytes = java.util.Base64.getDecoder().decode(aesKeyB64); } catch (Exception ignored) {}
+                }
+                if (iv != null && keyBytes != null) {
+                    CaptureStore.register(iv, keyBytes);
+                }
+            } catch (Throwable ignored) {}
+
+            // Drop request so it doesn't hit the backend and don't log it to the table
             return ProxyRequestToBeSentAction.drop();
         } catch (Throwable t) {
             return ProxyRequestToBeSentAction.continueWith(interceptedRequest);
@@ -94,4 +105,19 @@ class CaptureProxyHandler implements ProxyRequestHandler {
         try { return f.get(); } catch (Throwable t) { return null; }
     }
     interface SupplierWithEx<T> { T get(); }
+
+    private static String extractJsonString(String json, String key) {
+        if (json == null || key == null) return null;
+        try {
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile("\\\"" + java.util.regex.Pattern.quote(key) + "\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"");
+            java.util.regex.Matcher m = p.matcher(json);
+            if (m.find()) return m.group(1);
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private static String extractJsonStringNested(String json, String key) {
+        // For simplicity, fallback to generic search anywhere in JSON
+        return extractJsonString(json, key);
+    }
 }

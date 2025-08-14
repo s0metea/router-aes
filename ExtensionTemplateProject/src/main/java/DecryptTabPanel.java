@@ -86,7 +86,8 @@ class DecryptTabPanel extends JPanel {
                     int row = table.getSelectedRow();
                     DecryptEntry de = tableModel.get(row);
                     if (de != null) {
-                        requestEditor.setRequest(de.request);
+                        HttpRequest reqShown = de.displayedRequest != null ? de.displayedRequest : de.request;
+                        requestEditor.setRequest(reqShown);
                         HttpResponse resp = de.displayedResponse != null ? de.displayedResponse : de.originalResponse;
                         responseEditor.setResponse(resp);
                     }

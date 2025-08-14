@@ -25,11 +25,15 @@ class AESCbcDecryptor {
         String s = ivText.trim();
         try {
             if (isHex(s)) {
-                return hexToBytes(s);
+                byte[] raw = hexToBytes(s);
+                return normalizeIv(raw);
             }
         } catch (Exception ignored) {}
         try {
-            return Base64.getDecoder().decode(s);
+            // support base64url variants
+            String b64 = s.replace('-', '+').replace('_', '/');
+            byte[] raw = Base64.getDecoder().decode(b64);
+            return normalizeIv(raw);
         } catch (Exception ignored) {}
         return null;
     }
@@ -73,6 +77,20 @@ class AESCbcDecryptor {
         byte[] out = new byte[16];
         for (int i = 0; i < out.length; i++) {
             out[i] = key[i % key.length];
+        }
+        return out;
+    }
+
+    static byte[] normalizeIv(byte[] iv) {
+        if (iv == null) return null;
+        if (iv.length == 16) return iv;
+        byte[] out = new byte[16];
+        if (iv.length > 16) {
+            System.arraycopy(iv, 0, out, 0, 16);
+        } else {
+            // pad with zeroes deterministically
+            System.arraycopy(iv, 0, out, 0, iv.length);
+            for (int i = iv.length; i < 16; i++) out[i] = 0;
         }
         return out;
     }
