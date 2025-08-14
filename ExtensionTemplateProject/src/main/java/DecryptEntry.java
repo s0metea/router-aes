@@ -20,8 +20,4 @@ class DecryptEntry {
         this.note = note;
     }
 
-    // Backward-compat constructor
-    DecryptEntry(long timestamp, HttpRequest request, HttpResponse originalResponse, HttpResponse displayedResponse, boolean decrypted, String note) {
-        this(timestamp, request, null, originalResponse, displayedResponse, decrypted, note);
-    }
 }

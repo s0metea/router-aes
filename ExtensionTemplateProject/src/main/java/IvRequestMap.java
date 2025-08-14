@@ -6,7 +6,6 @@ import java.util.concurrent.ConcurrentHashMap;
 class IvRequestMap {
     private static final Map<String, Integer> IV_TO_MSG = new ConcurrentHashMap<>();
     private static final Map<Integer, HttpRequest> MSG_TO_REQ = new ConcurrentHashMap<>();
-    private static final Map<String, String> IV_TO_PLAINTEXT = new ConcurrentHashMap<>();
 
     static void remember(String ivB64, int messageId, HttpRequest req) {
         if (ivB64 == null || ivB64.isEmpty() || req == null) return;
@@ -23,24 +22,8 @@ class IvRequestMap {
         return MSG_TO_REQ.get(messageId);
     }
 
-    static void rememberPlaintext(String ivB64, String plaintext) {
-        if (ivB64 == null || ivB64.isEmpty() || plaintext == null) return;
-        IV_TO_PLAINTEXT.put(ivB64, plaintext);
-    }
-
-    static String takePlaintext(String ivB64) {
-        if (ivB64 == null) return null;
-        return IV_TO_PLAINTEXT.remove(ivB64);
-    }
-
     static void clearForIv(String ivB64) {
         Integer msg = IV_TO_MSG.remove(ivB64);
         if (msg != null) MSG_TO_REQ.remove(msg);
-        IV_TO_PLAINTEXT.remove(ivB64);
-    }
-
-    static void clearForMessageId(int messageId) {
-        MSG_TO_REQ.remove(messageId);
-        IV_TO_MSG.entrySet().removeIf(e -> e.getValue() == messageId);
     }
 }

@@ -3,7 +3,6 @@ import burp.api.montoya.proxy.http.InterceptedRequest;
 import burp.api.montoya.proxy.http.ProxyRequestHandler;
 import burp.api.montoya.proxy.http.ProxyRequestReceivedAction;
 import burp.api.montoya.proxy.http.ProxyRequestToBeSentAction;
-import burp.api.montoya.http.message.responses.HttpResponse;
 
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
