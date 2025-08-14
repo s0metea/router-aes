@@ -45,6 +45,18 @@ class DecryptingHttpHandler implements HttpHandler {
                         if (pending != null) {
                             var displayedReq = requestToBeSent.withBody(pending).withRemovedHeader("Content-Length");
                             RequestDisplayStore.put(requestToBeSent.messageId(), displayedReq);
+                        } else {
+                            // Try to decrypt request body ourselves for display if key is available
+                            String content = unescapeJsonString(extract(CONTENT_PATTERN, bodyOrig));
+                            byte[] k = AESCbcDecryptor.parseKey(panel.getAesKey());
+                            byte[] ivBytes = AESCbcDecryptor.parseIv(iv);
+                            if (content != null && k != null && ivBytes != null) {
+                                try {
+                                    String plain = AESCbcDecryptor.decryptBase64Content(content, k, ivBytes);
+                                    var displayedReq = requestToBeSent.withBody(plain).withRemovedHeader("Content-Length");
+                                    RequestDisplayStore.put(requestToBeSent.messageId(), displayedReq);
+                                } catch (Exception ignore) {}
+                            }
                         }
                     } catch (Throwable ignored) {}
                 }
@@ -70,32 +82,42 @@ class DecryptingHttpHandler implements HttpHandler {
                         return RequestToBeSentAction.continueWith(requestToBeSent);
                     }
                     byte[] keyBytes = AESCbcDecryptor.parseKey(panel.getAesKey());
-                    byte[] ivBytes = AESCbcDecryptor.parseIv(panel.getIv());
 
-                    // Generate a random IV if none provided or if it's all zeros
-                    if (ivBytes == null) {
-                        SecureRandom sr = new SecureRandom();
-                        ivBytes = new byte[16];
-                        sr.nextBytes(ivBytes);
+                    // Determine IV string to put into JSON and IV bytes to use for AES
+                    String ivStr = panel.getIv();
+                    byte[] ivForCipher;
+                    String ivOut;
+
+                    if (ivStr != null && !ivStr.trim().isEmpty()) {
+                        // Use the exact IV string provided by the frontend/user for the JSON field
+                        ivOut = ivStr;
+                        ivForCipher = AESCbcDecryptor.parseIv(ivOut); // normalize to 16 bytes for AES
                     } else {
-                        boolean allZero = true;
-                        for (byte b : ivBytes) { if (b != 0) { allZero = false; break; } }
-                        if (allZero) {
-                            SecureRandom sr = new SecureRandom();
-                            ivBytes = new byte[16];
-                            sr.nextBytes(ivBytes);
-                        }
+                        // Generate a 32-byte IV source so JSON gets a 44-char Base64, while AES uses first 16 bytes
+                        SecureRandom sr = new SecureRandom();
+                        byte[] ivRaw = new byte[32];
+                        sr.nextBytes(ivRaw);
+                        ivOut = Base64.getEncoder().encodeToString(ivRaw);
+                        ivForCipher = AESCbcDecryptor.normalizeIv(ivRaw); // 16 bytes for AES
                     }
 
-                    if (body != null && keyBytes != null && ivBytes != null) {
-                        String contentB64 = AESCbcEncryptor.encryptToBase64(body, keyBytes, ivBytes);
-                        String ivOut = Base64.getEncoder().encodeToString(ivBytes);
+                    // If IV parsing failed, generate a safe random IV (32B for JSON, 16B for AES)
+                    if (ivForCipher == null) {
+                        SecureRandom sr = new SecureRandom();
+                        byte[] ivRaw = new byte[32];
+                        sr.nextBytes(ivRaw);
+                        ivOut = Base64.getEncoder().encodeToString(ivRaw);
+                        ivForCipher = AESCbcDecryptor.normalizeIv(ivRaw);
+                    }
+
+                    if (body != null && keyBytes != null && ivForCipher != null) {
+                        String contentB64 = AESCbcEncryptor.encryptToBase64(body, keyBytes, ivForCipher);
                         try { panel.setIv(ivOut); } catch (Throwable ignored) {}
                         boolean isUserLogin = false;
                         String path = safe(requestToBeSent::pathWithoutQuery);
                         if (path != null) {
                             String p = path;
-                            isUserLogin = p.equals("/UserLogin") || p.endsWith("/UserLogin");
+                            isUserLogin = p.equals("/UserLogin") || p.endsWith("/UserLogin") || p.equals("/login") || p.endsWith("/login");
                         }
                         boolean alwaysSetKey = "always set".equalsIgnoreCase(panel.getKeyParamMode());
                         String keyField = "";
@@ -103,8 +125,8 @@ class DecryptingHttpHandler implements HttpHandler {
                             try {
                                 String aesKeyB64 = panel.getAesKey();
                                 if (aesKeyB64 != null && !aesKeyB64.isEmpty()) {
-                                    byte[] keyUtf8 = aesKeyB64.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-                                    keyField = RsaUtil.encryptKeyToBase64(keyUtf8, panel.getRsaPublicKey());
+                                    byte[] keyAscii = aesKeyB64.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+                                    keyField = RsaUtil.encryptKeyToBase64(keyAscii, panel.getRsaPublicKey());
                                 } else {
                                     keyField = "";
                                 }
