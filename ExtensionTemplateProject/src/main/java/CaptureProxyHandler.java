@@ -59,6 +59,7 @@ class CaptureProxyHandler implements ProxyRequestHandler {
                 if (iv == null) iv = extractJsonString(payloadJson, "iv");
                 if (iv == null) iv = extractJsonStringNested(payloadJson, "ivB64");
                 if (iv == null) iv = extractJsonStringNested(payloadJson, "iv");
+                try { if (iv != null) panel.setIv(iv); } catch (Throwable ignored) {}
 
                 // plaintext may be sent as 'plaintext' (full string) or fallback to preview fields if not present
                 String plaintext = extractJsonString(payloadJson, "plaintext");

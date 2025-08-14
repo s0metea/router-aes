@@ -57,26 +57,30 @@ class DecryptTabPanel extends JPanel {
         gc.insets = new Insets(2,2,2,2);
         gc.anchor = GridBagConstraints.WEST;
         gc.fill = GridBagConstraints.HORIZONTAL;
+
+        // Single horizontal row of configuration elements to reduce vertical space
         gc.gridy = 0; gc.gridx = 0;
         controls.add(new JLabel("Target origin:"), gc);
         gc.gridx = 1; controls.add(originField, gc);
         gc.gridx = 2; controls.add(enabledBox, gc);
+        gc.gridx = 3; controls.add(new JLabel("AES key (Base64/Hex):"), gc);
+        gc.gridx = 4; controls.add(aesKeyField, gc);
+        gc.gridx = 5; controls.add(encryptRepeaterBox, gc);
+        gc.gridx = 6; controls.add(new JLabel("IV (Base64/Hex):"), gc);
+        gc.gridx = 7; controls.add(ivField, gc);
+        gc.gridx = 8; controls.add(keyParamMode, gc);
+        gc.gridx = 9; controls.add(clearBtn, gc);
 
-        gc.gridy++; gc.gridx = 0; controls.add(new JLabel("AES key (Base64/Hex):"), gc);
-        gc.gridx = 1; controls.add(aesKeyField, gc);
-        gc.gridx = 2; controls.add(encryptRepeaterBox, gc);
-
-        gc.gridy++; gc.gridx = 0; controls.add(new JLabel("IV (Base64/Hex):"), gc);
-        gc.gridx = 1; controls.add(ivField, gc);
-        gc.gridx = 2; controls.add(keyParamMode, gc);
-
-        gc.gridy++; gc.gridx = 0; controls.add(new JLabel("RSA Public Key:"), gc);
-        gc.gridx = 1; gc.gridwidth = 2;
+        // RSA Public Key below, spanning remaining width
+        gc.gridy = 1; gc.gridx = 0;
+        controls.add(new JLabel("RSA Public Key:"), gc);
+        gc.gridx = 1; gc.gridwidth = 9;
         JScrollPane rsaScroll = new JScrollPane(rsaPublicKeyArea);
+        Dimension rsaPref = rsaScroll.getPreferredSize();
+        int h = rsaPref != null ? rsaPref.height : 60;
+        rsaScroll.setPreferredSize(new Dimension(400, Math.max(60, h)));
         controls.add(rsaScroll, gc);
         gc.gridwidth = 1;
-
-        gc.gridy++; gc.gridx = 0; controls.add(clearBtn, gc);
 
         clearBtn.addActionListener(e -> tableModel.clear());
 
@@ -122,6 +126,7 @@ class DecryptTabPanel extends JPanel {
     String getOrigin() { return originField.getText().trim(); }
     String getAesKey() { return aesKeyField.getText().trim(); }
     String getIv() { return ivField.getText().trim(); }
+    void setIv(String iv) { SwingUtilities.invokeLater(() -> ivField.setText(iv != null ? iv : "")); }
     String getRsaPublicKey() { return rsaPublicKeyArea.getText(); }
     String getKeyParamMode() { return (String) keyParamMode.getSelectedItem(); }
     boolean isFeatureEnabled() { return enabledBox.isSelected(); }

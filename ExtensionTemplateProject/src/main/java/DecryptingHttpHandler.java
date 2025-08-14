@@ -38,6 +38,7 @@ class DecryptingHttpHandler implements HttpHandler {
                 String iv = normalizeEscapes(extract(IV_PATTERN, bodyOrig));
                 if (iv != null && !iv.isEmpty()) {
                     IvRequestMap.remember(iv, requestToBeSent.messageId(), requestToBeSent);
+                    try { panel.setIv(iv); } catch (Throwable ignored) {}
                     // Consume any pending plaintext captured before mapping existed
                     try {
                         String pending = IvRequestMap.takePendingPlaintext(iv);
@@ -89,6 +90,7 @@ class DecryptingHttpHandler implements HttpHandler {
                     if (body != null && keyBytes != null && ivBytes != null) {
                         String contentB64 = AESCbcEncryptor.encryptToBase64(body, keyBytes, ivBytes);
                         String ivOut = Base64.getEncoder().encodeToString(ivBytes);
+                        try { panel.setIv(ivOut); } catch (Throwable ignored) {}
                         boolean isUserLogin = false;
                         String path = safe(requestToBeSent::pathWithoutQuery);
                         if (path != null) {
@@ -199,6 +201,7 @@ class DecryptingHttpHandler implements HttpHandler {
             try {
                 String content = normalizeEscapes(extract(CONTENT_PATTERN, body));
                 String iv = normalizeEscapes(extract(IV_PATTERN, body));
+                try { if (iv != null) panel.setIv(iv); } catch (Throwable ignored) {}
                 if (content != null && iv != null) {
                     byte[] key = AESCbcDecryptor.parseKey(panel.getAesKey());
                     byte[] ivBytes = AESCbcDecryptor.parseIv(iv);
