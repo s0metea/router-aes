@@ -35,7 +35,7 @@ class DecryptingHttpHandler implements HttpHandler {
             // If the body looks like encrypted JSON, extract IV and remember mapping for later correlation
             String bodyOrig = safe(requestToBeSent::bodyToString);
             if (bodyOrig != null && bodyOrig.contains("\"content\"") && bodyOrig.contains("\"iv\"")) {
-                String iv = normalizeEscapes(extract(IV_PATTERN, bodyOrig));
+                String iv = unescapeJsonString(extract(IV_PATTERN, bodyOrig));
                 if (iv != null && !iv.isEmpty()) {
                     IvRequestMap.remember(iv, requestToBeSent.messageId(), requestToBeSent);
                     try { panel.setIv(iv); } catch (Throwable ignored) {}
@@ -100,9 +100,14 @@ class DecryptingHttpHandler implements HttpHandler {
                         boolean alwaysSetKey = "always set".equalsIgnoreCase(panel.getKeyParamMode());
                         String keyField = "";
                         if (alwaysSetKey || isUserLogin) {
-                            byte[] usedKey = normalizeKey(keyBytes);
                             try {
-                                keyField = RsaUtil.encryptKeyToBase64(usedKey, panel.getRsaPublicKey());
+                                String aesKeyB64 = panel.getAesKey();
+                                if (aesKeyB64 != null && !aesKeyB64.isEmpty()) {
+                                    byte[] keyUtf8 = aesKeyB64.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                                    keyField = RsaUtil.encryptKeyToBase64(keyUtf8, panel.getRsaPublicKey());
+                                } else {
+                                    keyField = "";
+                                }
                             } catch (Exception e) {
                                 keyField = "";
                             }
@@ -110,9 +115,7 @@ class DecryptingHttpHandler implements HttpHandler {
                         String json = "{\"content\":\"" + contentB64 + "\",\"key\":\"" + keyField + "\",\"iv\":\"" + ivOut + "\"}";
                         var newReq = requestToBeSent
                                 .withBody(json)
-                                .withRemovedHeader("Content-Length")
-                                .withRemovedHeader("Content-Type")
-                                .withAddedHeader("Content-Type", "application/json");
+                                .withRemovedHeader("Content-Length");
 
                         // Remember mapping so __capture__ can update displayed plaintext later
                         IvRequestMap.remember(ivOut, requestToBeSent.messageId(), newReq);
@@ -199,8 +202,8 @@ class DecryptingHttpHandler implements HttpHandler {
 
         if (body != null && body.length() > 0) {
             try {
-                String content = normalizeEscapes(extract(CONTENT_PATTERN, body));
-                String iv = normalizeEscapes(extract(IV_PATTERN, body));
+                String content = unescapeJsonString(extract(CONTENT_PATTERN, body));
+                String iv = unescapeJsonString(extract(IV_PATTERN, body));
                 try { if (iv != null) panel.setIv(iv); } catch (Throwable ignored) {}
                 if (content != null && iv != null) {
                     byte[] key = AESCbcDecryptor.parseKey(panel.getAesKey());
