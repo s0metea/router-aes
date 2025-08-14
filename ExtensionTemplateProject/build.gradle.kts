@@ -8,12 +8,17 @@ repositories {
 
 dependencies {
     compileOnly("net.portswigger.burp.extensions:montoya-api:2025.7")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
 }
 
 tasks.withType<JavaCompile> {
     sourceCompatibility = "21"
     targetCompatibility = "21"
     options.encoding = "UTF-8"
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 tasks.jar {

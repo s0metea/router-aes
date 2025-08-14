@@ -78,46 +78,46 @@ class DecryptingHttpHandler implements HttpHandler {
                         } catch (Throwable ignored) {}
                     }
                     // If already in encrypted envelope, avoid double-wrapping
-                    if (body != null && body.contains("\"content\"") && body.contains("\"iv\"")) {
+                    if (body != null && body.contains("\"content\"") && (body.contains("\"iv\""))) {
                         return RequestToBeSentAction.continueWith(requestToBeSent);
                     }
-                    byte[] keyBytes = AESCbcDecryptor.parseKey(panel.getAesKey());
+
+                    // Strict encryption inputs (do not reuse decryption helpers)
+                    byte[] encKeyBytes;
+                    try {
+                        encKeyBytes = StrictCryptoInputs.keyFromAesKeyB64(panel.getAesKey());
+                    } catch (IllegalArgumentException ex) {
+                        // Fail fast: cannot fabricate a key for encryption
+                        return RequestToBeSentAction.continueWith(requestToBeSent);
+                    }
 
                     // Determine IV string to put into JSON and IV bytes to use for AES
-                    String ivStr = panel.getIv();
-                    byte[] ivForCipher;
-                    String ivOut;
+                    String encIvStrFromPanel = panel.getIv();
+                    byte[] encIv16;
+                    String encIvB64;
 
-                    if (ivStr != null && !ivStr.trim().isEmpty()) {
+                    if (encIvStrFromPanel != null && !encIvStrFromPanel.trim().isEmpty()) {
                         // Use the exact IV string provided by the frontend/user for the JSON field
-                        ivOut = ivStr;
-                        ivForCipher = AESCbcDecryptor.parseIv(ivOut); // normalize to 16 bytes for AES
+                        encIvB64 = encIvStrFromPanel;
+                        try {
+                            encIv16 = StrictCryptoInputs.iv16FromIvB64(encIvB64);
+                        } catch (IllegalArgumentException ex) {
+                            return RequestToBeSentAction.continueWith(requestToBeSent);
+                        }
                     } else {
-                        // Generate a 32-byte IV source so JSON gets a 44-char Base64, while AES uses first 16 bytes
-                        SecureRandom sr = new SecureRandom();
-                        byte[] ivRaw = new byte[32];
-                        sr.nextBytes(ivRaw);
-                        ivOut = Base64.getEncoder().encodeToString(ivRaw);
-                        ivForCipher = AESCbcDecryptor.normalizeIv(ivRaw); // 16 bytes for AES
+                        // Generate a 32-byte IV for JSON, AES uses first 16 bytes
+                        encIvB64 = StrictCryptoInputs.generateIvB64_32();
+                        encIv16 = StrictCryptoInputs.iv16FromIvB64(encIvB64);
                     }
 
-                    // If IV parsing failed, generate a safe random IV (32B for JSON, 16B for AES)
-                    if (ivForCipher == null) {
-                        SecureRandom sr = new SecureRandom();
-                        byte[] ivRaw = new byte[32];
-                        sr.nextBytes(ivRaw);
-                        ivOut = Base64.getEncoder().encodeToString(ivRaw);
-                        ivForCipher = AESCbcDecryptor.normalizeIv(ivRaw);
-                    }
-
-                    if (body != null && keyBytes != null && ivForCipher != null) {
-                        String contentB64 = AESCbcEncryptor.encryptToBase64(body, keyBytes, ivForCipher);
-                        try { panel.setIv(ivOut); } catch (Throwable ignored) {}
+                    if (body != null) {
+                        String contentB64 = AESCbcEncryptor.encryptToBase64(body, encKeyBytes, encIv16);
+                        try { panel.setIv(encIvB64); } catch (Throwable ignored) {}
                         boolean isUserLogin = false;
                         String path = safe(requestToBeSent::pathWithoutQuery);
                         if (path != null) {
                             String p = path;
-                            isUserLogin = p.equals("/UserLogin") || p.endsWith("/UserLogin") || p.equals("/login") || p.endsWith("/login");
+                            isUserLogin = p.equals("/UserLogin") || p.endsWith("/UserLogin");
                         }
                         boolean alwaysSetKey = "always set".equalsIgnoreCase(panel.getKeyParamMode());
                         String keyField = "";
@@ -134,16 +134,20 @@ class DecryptingHttpHandler implements HttpHandler {
                                 keyField = "";
                             }
                         }
-                        String json = "{\"content\":\"" + contentB64 + "\",\"key\":\"" + keyField + "\",\"iv\":\"" + ivOut + "\"}";
+                        String json = "{\"content\":\"" + contentB64 + "\",\"key\":\"" + keyField + "\",\"iv\":\"" + encIvB64 + "\"}";
                         var newReq = requestToBeSent
                                 .withBody(json)
-                                .withRemovedHeader("Content-Length");
+                                .withRemovedHeader("Content-Length")
+                                .withRemovedHeader("Transfer-Encoding")
+                                .withRemovedHeader("Content-Encoding")
+                                .withRemovedHeader("Content-Type")
+                                .withAddedHeader("Content-Type", "application/json");
 
                         // Remember mapping so __capture__ can update displayed plaintext later
-                        IvRequestMap.remember(ivOut, requestToBeSent.messageId(), newReq);
+                        IvRequestMap.remember(encIvB64, requestToBeSent.messageId(), newReq);
                         // Also consume any pending plaintext captured before the mapping existed
                         try {
-                            String pending = IvRequestMap.takePendingPlaintext(ivOut);
+                            String pending = IvRequestMap.takePendingPlaintext(encIvB64);
                             if (pending != null) {
                                 var displayedReq = newReq.withBody(pending).withRemovedHeader("Content-Length");
                                 RequestDisplayStore.put(requestToBeSent.messageId(), displayedReq);

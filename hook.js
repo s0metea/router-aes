@@ -1,6 +1,4 @@
 (() => {
-  const MAX_PREVIEW = 256;
-
   function sendToBurp(payload) {
     const json = JSON.stringify(payload);
     const blob = new Blob([json], { type: 'application/json' });
@@ -23,11 +21,6 @@
     } catch (_) {}
   }
 
-  function preview(v) {
-    if (typeof v === 'string') return v.slice(0, MAX_PREVIEW);
-    try { return JSON.stringify(v).slice(0, MAX_PREVIEW); } catch { return String(v).slice(0, MAX_PREVIEW); }
-  }
-
   function hookComponent(comp) {
     if (!comp || typeof comp.AesRsaEncrypt !== 'function' || comp.__aesHooked__) return false;
     comp.__aesHooked__ = true;
@@ -44,7 +37,6 @@
         ivB64,
         aesKeyB64,
         plaintextLen: (typeof plainText === 'string' ? plainText.length : 0),
-        plaintextPreview: preview(plainText),
         out: {
           contentLen: (outObj && outObj.content && outObj.content.length) || 0,
           contentPreview: outObj && outObj.content ? outObj.content.slice(0, 64) : null,
