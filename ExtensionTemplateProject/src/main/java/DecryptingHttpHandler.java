@@ -7,10 +7,8 @@ import burp.api.montoya.http.handler.RequestToBeSentAction;
 import burp.api.montoya.http.handler.ResponseReceivedAction;
 import burp.api.montoya.http.message.responses.HttpResponse;
 
-import java.util.Base64;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.security.SecureRandom;
 
 class DecryptingHttpHandler implements HttpHandler {
     private final MontoyaApi api;
@@ -23,6 +21,7 @@ class DecryptingHttpHandler implements HttpHandler {
     DecryptingHttpHandler(MontoyaApi api, DecryptTabPanel panel) {
         this.api = api;
         this.panel = panel;
+        try { this.api.logging().logToOutput("[AES-Decrypter] HTTP handler registered"); } catch (Throwable ignored) {}
     }
 
     @Override
@@ -30,6 +29,7 @@ class DecryptingHttpHandler implements HttpHandler {
         try {
             String pathNoQ = safe(requestToBeSent::pathWithoutQuery);
             if (pathNoQ != null && pathNoQ.startsWith("/__capture__")) {
+                try { api.logging().logToOutput("[AES-Decrypter] Skipping capture beacon in request phase: " + pathNoQ); } catch (Throwable ignored) {}
                 return RequestToBeSentAction.continueWith(requestToBeSent);
             }
             // If the body looks like encrypted JSON, extract IV and remember mapping for later correlation
@@ -38,6 +38,7 @@ class DecryptingHttpHandler implements HttpHandler {
                 String iv = unescapeJsonString(extract(IV_PATTERN, bodyOrig));
                 if (iv != null && !iv.isEmpty()) {
                     IvRequestMap.remember(iv, requestToBeSent.messageId(), requestToBeSent);
+                    try { api.logging().logToOutput("[AES-Decrypter] Remembered IV mapping for message " + requestToBeSent.messageId()); } catch (Throwable ignored) {}
                     try { panel.setIv(iv); } catch (Throwable ignored) {}
                     // Consume any pending plaintext captured before mapping existed
                     try {
@@ -47,6 +48,7 @@ class DecryptingHttpHandler implements HttpHandler {
                             RequestDisplayStore.put(requestToBeSent.messageId(), displayedReq);
                         } else {
                             // Try to decrypt request body ourselves for display if key is available
+                            try { api.logging().logToOutput("[AES-Decrypter] No pending plaintext; attempting local decrypt for display"); } catch (Throwable ignored) {}
                             String content = unescapeJsonString(extract(CONTENT_PATTERN, bodyOrig));
                             byte[] k = AESCbcDecryptor.parseKey(panel.getAesKey());
                             byte[] ivBytes = AESCbcDecryptor.parseIv(iv);
@@ -61,11 +63,14 @@ class DecryptingHttpHandler implements HttpHandler {
                     } catch (Throwable ignored) {}
                 }
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) {
+            try { api.logging().logToError("[AES-Decrypter] Error in request pre-processing", t); } catch (Throwable ignored) {}
+        }
 
         // Repeater encryption logic
         try {
             if (panel.isEncryptRepeaterEnabled() && requestToBeSent.toolSource() != null && requestToBeSent.toolSource().isFromTool(ToolType.REPEATER)) {
+                try { api.logging().logToOutput("[AES-Decrypter] Encrypting Repeater request " + requestToBeSent.messageId()); } catch (Throwable ignored) {}
                 String method = safe(requestToBeSent::method);
                 if (method != null) method = method.toUpperCase();
                 if ("POST".equals(method) || "PUT".equals(method) || "PATCH".equals(method)) {
@@ -137,11 +142,8 @@ class DecryptingHttpHandler implements HttpHandler {
                         String json = "{\"content\":\"" + contentB64 + "\",\"key\":\"" + keyField + "\",\"iv\":\"" + encIvB64 + "\"}";
                         var newReq = requestToBeSent
                                 .withBody(json)
-                                .withRemovedHeader("Content-Length")
-                                .withRemovedHeader("Transfer-Encoding")
-                                .withRemovedHeader("Content-Encoding")
-                                .withRemovedHeader("Content-Type")
-                                .withAddedHeader("Content-Type", "application/json");
+                                .withRemovedHeader("Content-Length");
+                        try { api.logging().logToOutput("[AES-Decrypter] Repeater request encrypted; iv=" + encIvB64); } catch (Throwable ignored) {}
 
                         // Remember mapping so __capture__ can update displayed plaintext later
                         IvRequestMap.remember(encIvB64, requestToBeSent.messageId(), newReq);
@@ -158,7 +160,9 @@ class DecryptingHttpHandler implements HttpHandler {
                     }
                 }
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) {
+            try { api.logging().logToError("[AES-Decrypter] Error in Repeater encryption phase", t); } catch (Throwable ignored) {}
+        }
         // default behavior
         return RequestToBeSentAction.continueWith(requestToBeSent);
     }
@@ -174,11 +178,12 @@ class DecryptingHttpHandler implements HttpHandler {
             if (path != null && path.endsWith("/static/js/app.js")) {
                 String js = safe(responseReceived::bodyToString);
                 if (js != null) {
-                    HttpResponse injected = originalResp.withBody(js + "\n;\n" + HookPayload.HOOK_JS)
+                    HttpResponse injected = originalResp.withBody(js + "\n;\n" + HookSettings.getHook(api.persistence().preferences()))
                             .withRemovedHeader("Content-Length")
                             .withRemovedHeader("Content-Encoding")
                             .withRemovedHeader("Content-Type")
                             .withAddedHeader("Content-Type", "application/javascript");
+                    try { api.logging().raiseInfoEvent("Injected hook into /static/js/app.js response"); } catch (Throwable ignored) {}
                     return ResponseReceivedAction.continueWith(injected);
                 }
             }
@@ -194,8 +199,7 @@ class DecryptingHttpHandler implements HttpHandler {
                     return ResponseReceivedAction.continueWith(originalResp);
                 }
                 String p = path;
-                boolean matches = p.equals("/getRSAPublickKey") || p.endsWith("/getRSAPublickKey")
-                        || p.equals("/getRSAPublicKey") || p.endsWith("/getRSAPublicKey");
+                boolean matches = p.equals("/getRSAPublicKey") || p.endsWith("/getRSAPublicKey");
                 if (matches && (method == null || "GET".equalsIgnoreCase(method))) {
                     String body = safe(responseReceived::bodyToString);
                     if (body != null) {
@@ -204,6 +208,7 @@ class DecryptingHttpHandler implements HttpHandler {
                             String key = unescapeJsonString(keyEsc);
                             if (key != null && key.contains("BEGIN PUBLIC KEY")) {
                                 panel.setRsaPublicKey(key);
+                                try { api.logging().raiseInfoEvent("Captured RSA public key from server response"); } catch (Throwable ignored) {}
                             }
                         }
                     }
@@ -213,11 +218,13 @@ class DecryptingHttpHandler implements HttpHandler {
 
         boolean shouldProcess = panel.isFeatureEnabled() && originMatches(panel.getOrigin(), safe(req::url));
         if (!shouldProcess) {
+            try { api.logging().logToOutput("[AES-Decrypter] Skipping response (feature off or origin mismatch)"); } catch (Throwable ignored) {}
             return ResponseReceivedAction.continueWith(originalResp);
         }
 
         String contentType = safe(() -> responseReceived.headerValue("Content-Type"));
         if (contentType == null || !contentType.toLowerCase().contains("application/json")) {
+            try { api.logging().logToOutput("[AES-Decrypter] Skipping non-JSON response"); } catch (Throwable ignored) {}
             return ResponseReceivedAction.continueWith(originalResp);
         }
 
@@ -237,18 +244,21 @@ class DecryptingHttpHandler implements HttpHandler {
                     if (key != null && ivBytes != null) {
                         String plain = AESCbcDecryptor.decryptBase64Content(content, key, ivBytes);
                         resultResp = resultResp.withBody(plain)
-                                .withRemovedHeader("Content-Encoding")
                                 .withRemovedHeader("Content-Length");
                         decrypted = true;
                         note = "decrypted";
+                        try { api.logging().logToOutput("[AES-Decrypter] Response decrypted (msgId=" + responseReceived.messageId() + ")"); } catch (Throwable ignored) {}
                     } else {
                         note = "missing key/iv";
+                        try { api.logging().logToOutput("[AES-Decrypter] Missing key or IV for decryption"); } catch (Throwable ignored) {}
                     }
                 } else {
                     note = "no content/iv";
+                    try { api.logging().logToOutput("[AES-Decrypter] Response missing content/iv fields"); } catch (Throwable ignored) {}
                 }
             } catch (Exception ex) {
                 note = "decrypt error: " + ex.getMessage();
+                try { api.logging().logToError("[AES-Decrypter] Decrypt error", ex); } catch (Throwable ignored) {}
             }
         } else {
             note = "not json";
@@ -257,6 +267,7 @@ class DecryptingHttpHandler implements HttpHandler {
         // Attach any displayedRequest that was prepared during request phase
         var displayedReq = RequestDisplayStore.take(responseReceived.messageId());
         panel.addEntry(new DecryptEntry(System.currentTimeMillis(), req, displayedReq, originalResp, resultResp, decrypted, note));
+        try { api.logging().logToOutput("[AES-Decrypter] Logged entry: decrypted=" + decrypted + ", note=" + note); } catch (Throwable ignored) {}
         return ResponseReceivedAction.continueWith(resultResp);
     }
 

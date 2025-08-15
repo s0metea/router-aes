@@ -1,19 +1,25 @@
 import java.security.KeyFactory;
 import java.security.PublicKey;
+import java.security.SecureRandom;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.crypto.Cipher;
 
 class RsaUtil {
+    private static final Logger LOG = Logger.getLogger(RsaUtil.class.getName());
+
     static String encryptKeyToBase64(byte[] aesKey, String publicKeyText) throws Exception {
         PublicKey pub = parsePublicKey(publicKeyText);
         Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-        // Deterministic PRNG: seed with Base64-decoded key bytes if possible for reproducibility
-        java.security.SecureRandom sr = java.security.SecureRandom.getInstance("SHA1PRNG");
         byte[] seed = aesKey;
         try {
             seed = Base64.getDecoder().decode(new String(aesKey, java.nio.charset.StandardCharsets.US_ASCII));
-        } catch (Throwable ignored) { /* fall back to ascii bytes */ }
+        } catch (Throwable t) {
+            LOG.log(Level.FINE, "Failed to Base64-decode AES key for PRNG seed; falling back to ASCII bytes. Seed length={0}", (aesKey != null ? aesKey.length : 0));
+        }
+        SecureRandom sr = new SecureRandom();
         if (seed != null) sr.setSeed(seed);
         cipher.init(Cipher.ENCRYPT_MODE, pub, sr);
         byte[] enc = cipher.doFinal(aesKey);

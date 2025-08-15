@@ -14,8 +14,11 @@ import javax.swing.event.ListSelectionListener;
 import java.awt.*;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 class DecryptTabPanel extends JPanel {
+    private static final Logger LOG = Logger.getLogger(DecryptTabPanel.class.getName());
     private final MontoyaApi api;
     private final Preferences prefs;
 
@@ -160,7 +163,9 @@ class DecryptTabPanel extends JPanel {
             enabledBox.setSelected(enabled != null && enabled);
             Boolean encRep = prefs.getBoolean(PREF_ENCRYPT_REPEATER);
             encryptRepeaterBox.setSelected(encRep != null && encRep);
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) {
+            LOG.log(Level.FINE, "Failed to load some preferences; continuing with defaults: {0}", t.toString());
+        }
     }
 
     private void attachPersistenceListeners() {
@@ -171,7 +176,9 @@ class DecryptTabPanel extends JPanel {
                     prefs.setString(PREF_AES_KEY, getAesKey());
                     prefs.setString(PREF_IV, getIv());
                     prefs.setString(PREF_RSA_PUB, getRsaPublicKey());
-                } catch (Throwable ignored) {}
+                } catch (Throwable t) {
+                    LOG.log(Level.FINE, "Failed to persist text preferences: {0}", t.toString());
+                }
             }
             @Override public void insertUpdate(DocumentEvent e) { onChange(); }
             @Override public void removeUpdate(DocumentEvent e) { onChange(); }
@@ -189,7 +196,9 @@ class DecryptTabPanel extends JPanel {
                     prefs.setBoolean(PREF_ENCRYPT_REPEATER, encryptRepeaterBox.isSelected());
                     Object sel = keyParamMode.getSelectedItem();
                     prefs.setString(PREF_KEY_MODE, sel != null ? sel.toString() : "");
-                } catch (Throwable ignored) {}
+                } catch (Throwable t) {
+                    LOG.log(Level.FINE, "Failed to persist checkbox/combo preferences: {0}", t.toString());
+                }
             }
         };
         enabledBox.addItemListener(itemSave);

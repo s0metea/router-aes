@@ -17,6 +17,7 @@ class CaptureProxyHandler implements ProxyRequestHandler {
     CaptureProxyHandler(MontoyaApi api, DecryptTabPanel panel) {
         this.api = api;
         this.panel = panel;
+        try { this.api.logging().logToOutput("[AES-Decrypter] Proxy capture handler registered"); } catch (Throwable ignored) {}
     }
 
     @Override
@@ -32,6 +33,7 @@ class CaptureProxyHandler implements ProxyRequestHandler {
             if (path == null || !path.startsWith("/__capture__")) {
                 return ProxyRequestToBeSentAction.continueWith(interceptedRequest);
             }
+            try { api.logging().logToOutput("[AES-Decrypter] Capture beacon received: " + path); } catch (Throwable ignored) {}
 
             String body = safe(() -> interceptedRequest.bodyToString());
             String payloadJson = null;
@@ -55,17 +57,11 @@ class CaptureProxyHandler implements ProxyRequestHandler {
 
             // Parse JSON payload, correlate by IV, and update displayed request body with plaintext
             try {
-                String iv = extractJsonString(payloadJson, "ivB64");
-                if (iv == null) iv = extractJsonString(payloadJson, "iv");
-                if (iv == null) iv = extractJsonStringNested(payloadJson, "ivB64");
-                if (iv == null) iv = extractJsonStringNested(payloadJson, "iv");
+                String iv = extractJsonString(payloadJson, "iv");
                 try { if (iv != null) panel.setIv(iv); } catch (Throwable ignored) {}
 
                 // plaintext may be sent as 'plaintext' (full string) or fallback to preview fields if not present
                 String plaintext = extractJsonString(payloadJson, "plaintext");
-                if (plaintext == null) plaintext = extractJsonStringNested(payloadJson, "plaintext");
-                if (plaintext == null) plaintext = extractJsonString(payloadJson, "plaintextPreview");
-                if (plaintext == null) plaintext = extractJsonStringNested(payloadJson, "plaintextPreview");
 
                 if (iv != null && plaintext != null) {
                     Integer msgId = IvRequestMap.messageIdForIv(iv);
@@ -74,18 +70,22 @@ class CaptureProxyHandler implements ProxyRequestHandler {
                         if (origReq != null) {
                             var displayedReq = origReq.withBody(plaintext).withRemovedHeader("Content-Length");
                             RequestDisplayStore.put(msgId, displayedReq);
+                            try { api.logging().logToOutput("[AES-Decrypter] Applied captured plaintext to request " + msgId); } catch (Throwable ignored) {}
                         }
                         IvRequestMap.clearForIv(iv);
                     } else {
                         // No mapping yet: store plaintext to apply once the request mapping is remembered
                         IvRequestMap.putPendingPlaintext(iv, plaintext);
+                        try { api.logging().logToOutput("[AES-Decrypter] Stored pending plaintext awaiting IV mapping"); } catch (Throwable ignored) {}
                     }
                 }
             } catch (Throwable ignored) {}
 
             // Drop request so it doesn't hit the backend and don't log it to the table
+            try { api.logging().logToOutput("[AES-Decrypter] Dropping capture beacon request"); } catch (Throwable ignored) {}
             return ProxyRequestToBeSentAction.drop();
         } catch (Throwable t) {
+            try { api.logging().logToError("[AES-Decrypter] Error handling capture beacon", t); } catch (Throwable ignored) {}
             return ProxyRequestToBeSentAction.continueWith(interceptedRequest);
         }
     }
