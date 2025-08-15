@@ -76,7 +76,7 @@ class DecryptingHttpHandler implements HttpHandler {
                 if (method != null) method = method.toUpperCase();
                 String hostForToken = safe(() -> requestToBeSent.httpService().host());
                 String csrfToken = SessionKeyStore.get(hostForToken);
-                if ("POST".equals(method) || "PUT".equals(method) || "PATCH".equals(method)) {
+                if ("POST".equals(method) || "PUT".equals(method) || "PATCH".equals(method) || "DELETE".equals(method)) {
                     String body = safe(requestToBeSent::bodyToString);
                     // Keep a plaintext view for the table
                     if (body != null) {
