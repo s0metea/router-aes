@@ -22,6 +22,7 @@ class RsaUtil {
         SecureRandom sr = new SecureRandom();
         if (seed != null) sr.setSeed(seed);
         cipher.init(Cipher.ENCRYPT_MODE, pub, sr);
+        assert aesKey != null;
         byte[] enc = cipher.doFinal(aesKey);
         return Base64.getEncoder().encodeToString(enc);
     }

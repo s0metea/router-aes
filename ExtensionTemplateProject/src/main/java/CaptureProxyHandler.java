@@ -57,8 +57,20 @@ class CaptureProxyHandler implements ProxyRequestHandler {
 
             // Parse JSON payload, correlate by IV, and update displayed request body with plaintext
             try {
-                String iv = extractJsonString(payloadJson, "iv");
+                String iv = extractJsonString(payloadJson, "ivB64");
+                if (iv == null) iv = extractJsonString(payloadJson, "iv");
                 try { if (iv != null) panel.setIv(iv); } catch (Throwable ignored) {}
+
+                // Optionally set AES key from capture
+                try {
+                    if (panel.isSetKeyFromCaptureEnabled()) {
+                        String aesKey = extractJsonString(payloadJson, "aesKeyB64");
+                        if (aesKey != null && !aesKey.isEmpty()) {
+                            panel.setAesKey(aesKey);
+                            try { api.logging().raiseInfoEvent("[AES-Decrypter] AES key set from /__capture__ beacon"); } catch (Throwable ignored) {}
+                        }
+                    }
+                } catch (Throwable ignored) {}
 
                 // plaintext may be sent as 'plaintext' (full string) or fallback to preview fields if not present
                 String plaintext = extractJsonString(payloadJson, "plaintext");

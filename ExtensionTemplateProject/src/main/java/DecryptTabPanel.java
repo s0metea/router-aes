@@ -30,6 +30,7 @@ class DecryptTabPanel extends JPanel {
     private static final String PREF_KEY_MODE = PREF_PREFIX + "key_param_mode";
     private static final String PREF_ENABLED = PREF_PREFIX + "enabled";
     private static final String PREF_ENCRYPT_REPEATER = PREF_PREFIX + "encrypt_repeater";
+    private static final String PREF_SET_KEY_FROM_CAPTURE = PREF_PREFIX + "set_key_from_capture";
 
     private final JTextField originField = new JTextField(20);
     private final JTextField aesKeyField = new JTextField(24);
@@ -38,6 +39,7 @@ class DecryptTabPanel extends JPanel {
     private final JComboBox<String> keyParamMode = new JComboBox<>(new String[]{"always set", "only on POST /UserLogin"});
     private final JCheckBox enabledBox = new JCheckBox("Enabled");
     private final JCheckBox encryptRepeaterBox = new JCheckBox("Encrypt Repeater requests");
+    private final JCheckBox setKeyFromCaptureBox = new JCheckBox("Set AES key from /__capture__");
     private final JButton clearBtn = new JButton("Clear");
 
     private final DecryptTableModel tableModel = new DecryptTableModel();
@@ -54,34 +56,38 @@ class DecryptTabPanel extends JPanel {
         this.requestEditor = ui.createHttpRequestEditor();
         this.responseEditor = ui.createHttpResponseEditor();
 
-        JPanel controls = new JPanel();
-        controls.setLayout(new GridBagLayout());
+        // Build main decrypt UI inside its own panel
+        JPanel mainPanel = new JPanel(new BorderLayout());
+
+        JPanel controls = new JPanel(new GridBagLayout());
         GridBagConstraints gc = new GridBagConstraints();
         gc.insets = new Insets(2,2,2,2);
         gc.anchor = GridBagConstraints.WEST;
         gc.fill = GridBagConstraints.HORIZONTAL;
 
-        // Single horizontal row of configuration elements to reduce vertical space
-        gc.gridy = 0; gc.gridx = 0;
+        // Row 0: Origin + toggles and actions
+        gc.gridy = 0; gc.gridx = 0; gc.weightx = 0;
         controls.add(new JLabel("Target origin:"), gc);
-        gc.gridx = 1; controls.add(originField, gc);
-        gc.gridx = 2; controls.add(enabledBox, gc);
-        gc.gridx = 3; controls.add(new JLabel("AES key (Base64/Hex):"), gc);
-        gc.gridx = 4; controls.add(aesKeyField, gc);
-        gc.gridx = 5; controls.add(encryptRepeaterBox, gc);
-        gc.gridx = 6; controls.add(new JLabel("IV (Base64/Hex):"), gc);
-        gc.gridx = 7; controls.add(ivField, gc);
-        gc.gridx = 8; controls.add(keyParamMode, gc);
-        gc.gridx = 9; controls.add(clearBtn, gc);
+        gc.gridx = 1; gc.weightx = 1; controls.add(originField, gc);
+        gc.gridx = 2; gc.weightx = 0; controls.add(enabledBox, gc);
+        gc.gridx = 3; controls.add(encryptRepeaterBox, gc);
+        gc.gridx = 4; controls.add(keyParamMode, gc);
+        gc.gridx = 5; controls.add(clearBtn, gc);
+
+        // Row 1: Key/IV
+        gc.gridy = 1; gc.gridx = 0; gc.weightx = 0; controls.add(new JLabel("AES key (Base64/Hex):"), gc);
+        gc.gridx = 1; gc.weightx = 1; controls.add(aesKeyField, gc);
+        gc.gridx = 2; gc.weightx = 0; controls.add(setKeyFromCaptureBox, gc);
+        gc.gridx = 3; controls.add(new JLabel("IV (Base64/Hex):"), gc);
+        gc.gridx = 4; gc.weightx = 1; controls.add(ivField, gc);
 
         // RSA Public Key below, spanning remaining width
-        gc.gridy = 1; gc.gridx = 0;
-        controls.add(new JLabel("RSA Public Key:"), gc);
-        gc.gridx = 1; gc.gridwidth = 9;
+        gc.gridy = 2; gc.gridx = 0; gc.weightx = 0; controls.add(new JLabel("RSA Public Key:"), gc);
+        gc.gridx = 1; gc.gridwidth = 4; gc.weightx = 1;
         JScrollPane rsaScroll = new JScrollPane(rsaPublicKeyArea);
         Dimension rsaPref = rsaScroll.getPreferredSize();
-        int h = rsaPref != null ? rsaPref.height : 60;
-        rsaScroll.setPreferredSize(new Dimension(400, Math.max(60, h)));
+        int h = rsaPref != null ? rsaPref.height : 80;
+        rsaScroll.setPreferredSize(new Dimension(400, Math.max(80, h)));
         controls.add(rsaScroll, gc);
         gc.gridwidth = 1;
 
@@ -98,8 +104,15 @@ class DecryptTabPanel extends JPanel {
                 tableScroll, editorsSplit);
         verticalSplit.setResizeWeight(0.35);
 
-        add(controls, BorderLayout.NORTH);
-        add(verticalSplit, BorderLayout.CENTER);
+        mainPanel.add(controls, BorderLayout.NORTH);
+        mainPanel.add(verticalSplit, BorderLayout.CENTER);
+
+        // Create a tabbed pane to host Decrypt UI and Hook UI inside the single Burp tab
+        JTabbedPane innerTabs = new JTabbedPane();
+        innerTabs.addTab("Decrypt", mainPanel);
+        innerTabs.addTab("Hook", new HookTabPanel(api));
+
+        add(innerTabs, BorderLayout.CENTER);
 
         ui.applyThemeToComponent(this);
 
@@ -134,6 +147,8 @@ class DecryptTabPanel extends JPanel {
     String getKeyParamMode() { return (String) keyParamMode.getSelectedItem(); }
     boolean isFeatureEnabled() { return enabledBox.isSelected(); }
     boolean isEncryptRepeaterEnabled() { return encryptRepeaterBox.isSelected(); }
+    boolean isSetKeyFromCaptureEnabled() { return setKeyFromCaptureBox.isSelected(); }
+    void setAesKey(String key) { SwingUtilities.invokeLater(() -> aesKeyField.setText(key != null ? key : "")); }
 
     void addEntry(DecryptEntry e) {
         SwingUtilities.invokeLater(() -> tableModel.add(e));
@@ -163,6 +178,8 @@ class DecryptTabPanel extends JPanel {
             enabledBox.setSelected(enabled != null && enabled);
             Boolean encRep = prefs.getBoolean(PREF_ENCRYPT_REPEATER);
             encryptRepeaterBox.setSelected(encRep != null && encRep);
+            Boolean setKeyCap = prefs.getBoolean(PREF_SET_KEY_FROM_CAPTURE);
+            setKeyFromCaptureBox.setSelected(setKeyCap != null && setKeyCap);
         } catch (Throwable t) {
             LOG.log(Level.FINE, "Failed to load some preferences; continuing with defaults: {0}", t.toString());
         }
@@ -194,6 +211,7 @@ class DecryptTabPanel extends JPanel {
                 try {
                     prefs.setBoolean(PREF_ENABLED, enabledBox.isSelected());
                     prefs.setBoolean(PREF_ENCRYPT_REPEATER, encryptRepeaterBox.isSelected());
+                    prefs.setBoolean(PREF_SET_KEY_FROM_CAPTURE, setKeyFromCaptureBox.isSelected());
                     Object sel = keyParamMode.getSelectedItem();
                     prefs.setString(PREF_KEY_MODE, sel != null ? sel.toString() : "");
                 } catch (Throwable t) {
@@ -203,6 +221,7 @@ class DecryptTabPanel extends JPanel {
         };
         enabledBox.addItemListener(itemSave);
         encryptRepeaterBox.addItemListener(itemSave);
+        setKeyFromCaptureBox.addItemListener(itemSave);
         keyParamMode.addItemListener(itemSave);
     }
 }

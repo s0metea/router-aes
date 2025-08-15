@@ -51,8 +51,8 @@ class DecryptTableModel extends AbstractTableModel {
         HttpResponse resp = e.displayedResponse != null ? e.displayedResponse : e.originalResponse;
         return switch (columnIndex) {
             case 0 -> fmt.format(new Date(e.timestamp));
-            case 1 -> safe(() -> req.method());
-            case 2 -> safe(() -> req.url());
+            case 1 -> safe(req::method);
+            case 2 -> safe(req::url);
             case 3 -> safe(() -> String.valueOf(resp.statusCode()));
             case 4 -> e.decrypted;
             case 5 -> e.note;

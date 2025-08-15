@@ -14,10 +14,6 @@ public class Extension implements BurpExtension {
         DecryptTabPanel panel = new DecryptTabPanel(montoyaApi);
         Registration tabReg = montoyaApi.userInterface().registerSuiteTab("AES Decrypt", panel);
 
-        // New tab for providing custom JS hook
-        HookTabPanel hookTab = new HookTabPanel(montoyaApi);
-        Registration hookTabReg = montoyaApi.userInterface().registerSuiteTab("Hook", hookTab);
-
         // Context menu to set origin from selected request
         Registration ctxReg = montoyaApi.userInterface().registerContextMenuItemsProvider(new OriginContextMenuProvider(panel));
 
