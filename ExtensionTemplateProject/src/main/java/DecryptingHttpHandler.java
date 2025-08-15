@@ -140,9 +140,12 @@ class DecryptingHttpHandler implements HttpHandler {
                             }
                         }
                         String json = "{\"content\":\"" + contentB64 + "\",\"key\":\"" + keyField + "\",\"iv\":\"" + encIvB64 + "\"}";
+                        byte[] utf8 = json.getBytes(java.nio.charset.StandardCharsets.UTF_8);
                         var newReq = requestToBeSent
                                 .withBody(json)
-                                .withRemovedHeader("Content-Length");
+                                .withRemovedHeader("Content-Length")
+                                .withAddedHeader("Content-Length", String.valueOf(utf8.length));
+
                         try { api.logging().logToOutput("[AES-Decrypter] Repeater request encrypted; iv=" + encIvB64); } catch (Throwable ignored) {}
 
                         // Remember mapping so __capture__ can update displayed plaintext later
@@ -276,26 +279,10 @@ class DecryptingHttpHandler implements HttpHandler {
         return url.contains(origin);
     }
 
-    private static byte[] normalizeKey(byte[] key) {
-        if (key == null) return new byte[16];
-        int len = key.length;
-        if (len == 16 || len == 24 || len == 32) return key;
-        byte[] out = new byte[16];
-        for (int i = 0; i < out.length; i++) out[i] = key[i % key.length];
-        return out;
-    }
-
     private static String extract(Pattern p, String text) {
         Matcher m = p.matcher(text);
         if (m.find()) return m.group(1);
         return null;
-    }
-
-    // Simplified: just remove backslashes from the string
-    private static String normalizeEscapes(String s) {
-        if (s == null || s.indexOf('\\') < 0) return s;
-        return s.replace("\\", "");
-        
     }
 
     // Unescape common JSON escape sequences in a JSON string value
