@@ -106,7 +106,7 @@ class HookPayload {
                     "    }\n" +
                     "\n" +
                     "    router.beforeHooks.length = 0;\n" +
-                    "    router.resolveHooks.length = 0;\n" +
+                    "    //router.resolveHooks.length = 0;\n" +
                     "    router.afterHooks.length = 0;\n" +
                     "\n" +
                     "    window.hack = { router, store, enableDebug, disableDebug };\n" +
