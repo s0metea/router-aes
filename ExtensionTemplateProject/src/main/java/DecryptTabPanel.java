@@ -31,6 +31,8 @@ class DecryptTabPanel extends JPanel {
     private static final String PREF_ENABLED = PREF_PREFIX + "enabled";
     private static final String PREF_ENCRYPT_REPEATER = PREF_PREFIX + "encrypt_repeater";
     private static final String PREF_SET_KEY_FROM_CAPTURE = PREF_PREFIX + "set_key_from_capture";
+    private static final String PREF_AUTO_CSRF = PREF_PREFIX + "auto_csrf";
+    private static final String PREF_AUTO_SESSION_COOKIE = PREF_PREFIX + "auto_session_cookie";
 
     private final JTextField originField = new JTextField(20);
     private final JTextField aesKeyField = new JTextField(24);
@@ -40,6 +42,8 @@ class DecryptTabPanel extends JPanel {
     private final JCheckBox enabledBox = new JCheckBox("Enabled");
     private final JCheckBox encryptRepeaterBox = new JCheckBox("Encrypt Repeater requests");
     private final JCheckBox setKeyFromCaptureBox = new JCheckBox("Set AES key from /__capture__");
+    private final JCheckBox autoCsrfBox = new JCheckBox("Auto CSRF token");
+    private final JCheckBox autoSessionCookieBox = new JCheckBox("Auto update Session cookie (Repeater)");
     private final JButton clearBtn = new JButton("Clear");
 
     private final DecryptTableModel tableModel = new DecryptTableModel();
@@ -74,15 +78,18 @@ class DecryptTabPanel extends JPanel {
         gc.gridx = 4; controls.add(keyParamMode, gc);
         gc.gridx = 5; controls.add(clearBtn, gc);
 
-        // Row 1: Key/IV
+        // Row 1: Key/IV and toggles
         gc.gridy = 1; gc.gridx = 0; gc.weightx = 0; controls.add(new JLabel("AES key (Base64/Hex):"), gc);
         gc.gridx = 1; gc.weightx = 1; controls.add(aesKeyField, gc);
         gc.gridx = 2; gc.weightx = 0; controls.add(setKeyFromCaptureBox, gc);
         gc.gridx = 3; controls.add(new JLabel("IV (Base64/Hex):"), gc);
         gc.gridx = 4; gc.weightx = 1; controls.add(ivField, gc);
+        // Row 2: Auto features
+        gc.gridy = 2; gc.gridx = 0; gc.weightx = 0; controls.add(autoCsrfBox, gc);
+        gc.gridx = 1; gc.weightx = 0; controls.add(autoSessionCookieBox, gc);
 
         // RSA Public Key below, spanning remaining width
-        gc.gridy = 2; gc.gridx = 0; gc.weightx = 0; controls.add(new JLabel("RSA Public Key:"), gc);
+        gc.gridy = 3; gc.gridx = 0; gc.weightx = 0; controls.add(new JLabel("RSA Public Key:"), gc);
         gc.gridx = 1; gc.gridwidth = 4; gc.weightx = 1;
         JScrollPane rsaScroll = new JScrollPane(rsaPublicKeyArea);
         Dimension rsaPref = rsaScroll.getPreferredSize();
@@ -148,6 +155,8 @@ class DecryptTabPanel extends JPanel {
     boolean isFeatureEnabled() { return enabledBox.isSelected(); }
     boolean isEncryptRepeaterEnabled() { return encryptRepeaterBox.isSelected(); }
     boolean isSetKeyFromCaptureEnabled() { return setKeyFromCaptureBox.isSelected(); }
+    boolean isAutoCsrfEnabled() { return autoCsrfBox.isSelected(); }
+    boolean isAutoSessionCookieUpdateEnabled() { return autoSessionCookieBox.isSelected(); }
     void setAesKey(String key) { SwingUtilities.invokeLater(() -> aesKeyField.setText(key != null ? key : "")); }
 
     void addEntry(DecryptEntry e) {
@@ -180,6 +189,10 @@ class DecryptTabPanel extends JPanel {
             encryptRepeaterBox.setSelected(encRep != null && encRep);
             Boolean setKeyCap = prefs.getBoolean(PREF_SET_KEY_FROM_CAPTURE);
             setKeyFromCaptureBox.setSelected(setKeyCap != null && setKeyCap);
+            Boolean autoCsrf = prefs.getBoolean(PREF_AUTO_CSRF);
+            autoCsrfBox.setSelected(autoCsrf != null && autoCsrf);
+            Boolean autoSess = prefs.getBoolean(PREF_AUTO_SESSION_COOKIE);
+            autoSessionCookieBox.setSelected(autoSess != null && autoSess);
         } catch (Throwable t) {
             LOG.log(Level.FINE, "Failed to load some preferences; continuing with defaults: {0}", t.toString());
         }
@@ -212,6 +225,8 @@ class DecryptTabPanel extends JPanel {
                     prefs.setBoolean(PREF_ENABLED, enabledBox.isSelected());
                     prefs.setBoolean(PREF_ENCRYPT_REPEATER, encryptRepeaterBox.isSelected());
                     prefs.setBoolean(PREF_SET_KEY_FROM_CAPTURE, setKeyFromCaptureBox.isSelected());
+                    prefs.setBoolean(PREF_AUTO_CSRF, autoCsrfBox.isSelected());
+                    prefs.setBoolean(PREF_AUTO_SESSION_COOKIE, autoSessionCookieBox.isSelected());
                     Object sel = keyParamMode.getSelectedItem();
                     prefs.setString(PREF_KEY_MODE, sel != null ? sel.toString() : "");
                 } catch (Throwable t) {
@@ -222,6 +237,8 @@ class DecryptTabPanel extends JPanel {
         enabledBox.addItemListener(itemSave);
         encryptRepeaterBox.addItemListener(itemSave);
         setKeyFromCaptureBox.addItemListener(itemSave);
+        autoCsrfBox.addItemListener(itemSave);
+        autoSessionCookieBox.addItemListener(itemSave);
         keyParamMode.addItemListener(itemSave);
     }
 }

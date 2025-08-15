@@ -17,6 +17,7 @@ class DecryptingHttpHandler implements HttpHandler {
     private static final Pattern CONTENT_PATTERN = Pattern.compile("\\\"content\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"");
     private static final Pattern IV_PATTERN = Pattern.compile("\\\"iv\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"");
     private static final Pattern RSAPUB_PATTERN = Pattern.compile("\\\"RSAPublicKey\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"");
+    private static final Pattern SESSIONKEY_PATTERN = Pattern.compile("(?i)\\\"sessionkey\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"");
 
     DecryptingHttpHandler(MontoyaApi api, DecryptTabPanel panel) {
         this.api = api;
@@ -73,6 +74,8 @@ class DecryptingHttpHandler implements HttpHandler {
                 try { api.logging().logToOutput("[AES-Decrypter] Encrypting Repeater request " + requestToBeSent.messageId()); } catch (Throwable ignored) {}
                 String method = safe(requestToBeSent::method);
                 if (method != null) method = method.toUpperCase();
+                String hostForToken = safe(() -> requestToBeSent.httpService().host());
+                String csrfToken = SessionKeyStore.get(hostForToken);
                 if ("POST".equals(method) || "PUT".equals(method) || "PATCH".equals(method)) {
                     String body = safe(requestToBeSent::bodyToString);
                     // Keep a plaintext view for the table
@@ -146,6 +149,23 @@ class DecryptingHttpHandler implements HttpHandler {
                                 .withRemovedHeader("Content-Length")
                                 .withAddedHeader("Content-Length", String.valueOf(utf8.length));
 
+                        // Ensure Csrftoken header is present if enabled and we have a captured token for this host
+                        if (panel.isAutoCsrfEnabled() && csrfToken != null && !csrfToken.isEmpty()) {
+                            newReq = newReq.withRemovedHeader("Csrftoken").withAddedHeader("Csrftoken", csrfToken);
+                        }
+
+                        // If enabled, update Session cookie in Cookie header for Repeater
+                        if (panel.isAutoSessionCookieUpdateEnabled()) {
+                            String sessionCookie = SessionCookieStore.get(hostForToken);
+                            if (sessionCookie != null && !sessionCookie.isEmpty()) {
+                                String cookieHeader = newReq.headerValue("Cookie");
+                                String updatedCookieHeader = updateCookieHeader(cookieHeader, "Session", sessionCookie);
+                                if (updatedCookieHeader != null) {
+                                    newReq = newReq.withRemovedHeader("Cookie").withAddedHeader("Cookie", updatedCookieHeader);
+                                }
+                            }
+                        }
+
                         try { api.logging().logToOutput("[AES-Decrypter] Repeater request encrypted; iv=" + encIvB64); } catch (Throwable ignored) {}
 
                         // Remember mapping so __capture__ can update displayed plaintext later
@@ -166,6 +186,34 @@ class DecryptingHttpHandler implements HttpHandler {
         } catch (Throwable t) {
             try { api.logging().logToError("[AES-Decrypter] Error in Repeater encryption phase", t); } catch (Throwable ignored) {}
         }
+
+        // If not encrypting or non-POST methods, still ensure Csrftoken and Session cookie are set for Repeater requests when available
+        try {
+            if (requestToBeSent.toolSource() != null && requestToBeSent.toolSource().isFromTool(ToolType.REPEATER)) {
+                String hostForToken = safe(() -> requestToBeSent.httpService().host());
+                burp.api.montoya.http.message.requests.HttpRequest updated = requestToBeSent;
+                if (panel.isAutoCsrfEnabled()) {
+                    String csrfToken = SessionKeyStore.get(hostForToken);
+                    if (csrfToken != null && !csrfToken.isEmpty()) {
+                        updated = updated.withRemovedHeader("Csrftoken").withAddedHeader("Csrftoken", csrfToken);
+                    }
+                }
+                if (panel.isAutoSessionCookieUpdateEnabled()) {
+                    String sessionCookie = SessionCookieStore.get(hostForToken);
+                    if (sessionCookie != null && !sessionCookie.isEmpty()) {
+                        String cookieHeader = updated.headerValue("Cookie");
+                        String newCookieHeader = updateCookieHeader(cookieHeader, "Session", sessionCookie);
+                        if (newCookieHeader != null) {
+                            updated = updated.withRemovedHeader("Cookie").withAddedHeader("Cookie", newCookieHeader);
+                        }
+                    }
+                }
+                if (updated != requestToBeSent) {
+                    return RequestToBeSentAction.continueWith(updated);
+                }
+            }
+        } catch (Throwable ignored) {}
+
         // default behavior
         return RequestToBeSentAction.continueWith(requestToBeSent);
     }
@@ -175,10 +223,11 @@ class DecryptingHttpHandler implements HttpHandler {
         HttpResponse originalResp = responseReceived;
         var req = responseReceived.initiatingRequest();
 
-        // Unconditional hook injection for /static/js/app.js
+        // Hook injection for configured path (default /static/js/app.js)
         try {
+            String configuredPath = HookSettings.getHookPath(api.persistence().preferences());
             String path = safe(req::pathWithoutQuery);
-            if (path != null && path.endsWith("/static/js/app.js")) {
+            if (configuredPath != null && !configuredPath.isEmpty() && path != null && path.endsWith(configuredPath)) {
                 String js = safe(responseReceived::bodyToString);
                 if (js != null) {
                     HttpResponse injected = originalResp.withBody(js + "\n;\n" + HookSettings.getHook(api.persistence().preferences()))
@@ -186,7 +235,7 @@ class DecryptingHttpHandler implements HttpHandler {
                             .withRemovedHeader("Content-Encoding")
                             .withRemovedHeader("Content-Type")
                             .withAddedHeader("Content-Type", "application/javascript");
-                    try { api.logging().raiseInfoEvent("Injected hook into /static/js/app.js response"); } catch (Throwable ignored) {}
+                    try { api.logging().raiseInfoEvent("Injected hook into " + configuredPath + " response"); } catch (Throwable ignored) {}
                     return ResponseReceivedAction.continueWith(injected);
                 }
             }
@@ -215,6 +264,18 @@ class DecryptingHttpHandler implements HttpHandler {
                             }
                         }
                     }
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        // Capture Session cookie from server responses for Repeater auto-update
+        try {
+            if (panel.isAutoSessionCookieUpdateEnabled()) {
+                String sessionVal = safe(() -> responseReceived.cookieValue("Session"));
+                if (sessionVal != null && !sessionVal.isEmpty()) {
+                    String host = safe(() -> req.httpService().host());
+                    SessionCookieStore.put(host, sessionVal);
+                    try { api.logging().logToOutput("[AES-Decrypter] Captured Session cookie for host=" + host); } catch (Throwable ignored) {}
                 }
             }
         } catch (Throwable ignored) {}
@@ -267,6 +328,32 @@ class DecryptingHttpHandler implements HttpHandler {
             note = "not json";
         }
 
+        // After (possible) decryption, capture sessionkey from decrypted/plain body if enabled
+        try {
+            if (panel.isAutoCsrfEnabled()) {
+                String method = safe(req::method);
+                if (method != null) {
+                    method = method.toUpperCase();
+                    if ("POST".equals(method) || "PUT".equals(method) || "PATCH".equals(method)) {
+                        Short sc = safe(responseReceived::statusCode);
+                        if (sc != null && sc == 200) {
+                            String respBody = safe(resultResp::bodyToString); // use decrypted/plain when available
+                            if (respBody != null && respBody.contains("sessionkey")) {
+                                try { api.logging().logToOutput("[AES-Decrypter] CSRF token detected in decrypted response body; updating store..."); } catch (Throwable ignored) {}
+                                String keyEsc = extract(SESSIONKEY_PATTERN, respBody);
+                                String key = unescapeJsonString(keyEsc);
+                                if (key != null && !key.isEmpty()) {
+                                    String host = safe(() -> req.httpService().host());
+                                    SessionKeyStore.put(host, key);
+                                    try { api.logging().logToOutput("[AES-Decrypter] Captured sessionkey for host=" + host); } catch (Throwable ignored) {}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+
         // Attach any displayedRequest that was prepared during request phase
         var displayedReq = RequestDisplayStore.take(responseReceived.messageId());
         panel.addEntry(new DecryptEntry(System.currentTimeMillis(), req, displayedReq, originalResp, resultResp, decrypted, note));
@@ -298,9 +385,39 @@ class DecryptingHttpHandler implements HttpHandler {
         return out;
     }
 
+    // Merge/update a cookie header value with a specific cookie name=value
+    private static String updateCookieHeader(String existing, String name, String value) {
+        String nv = name + "=" + value;
+        if (existing == null || existing.trim().isEmpty()) {
+            return nv;
+        }
+        String[] parts = existing.split(";\\s*");
+        boolean replaced = false;
+        StringBuilder sb = new StringBuilder();
+        for (String p : parts) {
+            String trimmed = p.trim();
+            if (trimmed.isEmpty()) continue;
+            if (trimmed.startsWith(name + "=")) {
+                if (!replaced) {
+                    if (sb.length() > 0) sb.append("; ");
+                    sb.append(nv);
+                    replaced = true;
+                }
+            } else {
+                if (sb.length() > 0) sb.append("; ");
+                sb.append(trimmed);
+            }
+        }
+        if (!replaced) {
+            if (sb.length() > 0) sb.append("; ");
+            sb.append(nv);
+        }
+        return sb.toString();
+    }
+
     private static <T> T safe(SupplierWithEx<T> s) {
         try { return s.get(); } catch (Throwable t) { return null; }
     }
-
+    
     interface SupplierWithEx<T> { T get(); }
 }
