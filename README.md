@@ -142,7 +142,3 @@ This makes working with AES‑wrapped APIs feel native in Burp.
 - IvRequestMap.java / RequestDisplayStore.java — Correlation stores for IV→messageId and prepared plaintext views.
 - hook.js — Standalone copy of the hook for manual injection/use.
 
-
-## License
-
-This repository did not include a license file. If you intend to distribute this extension, add an appropriate LICENSE file.
